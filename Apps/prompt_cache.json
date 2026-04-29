@@ -1,57 +1,8 @@
 {
-  "deploy nginx": [
-    {
-      "action": "deploy",
-      "name": "nginx",
-      "image": "nginx"
-    }
-  ],
-  "clear": [],
-  "show deployments": [
-    {
-      "action": "list_deployments"
-    }
-  ],
-  "scale nginx to 3": [
-    {
-      "action": "scale",
-      "name": "nginx",
-      "replicas": 3
-    }
-  ],
-  "delete nginx": [
+  "delete all": [
     {
       "action": "delete",
-      "name": "nginx"
-    }
-  ],
-  "deploy redis": [
-    {
-      "action": "deploy",
-      "name": "redis",
-      "image": "redis:alpine",
-      "replicas": 3
-    }
-  ],
-  "scale fakeapp to 3": [
-    {
-      "action": "scale",
-      "name": "fakeapp",
-      "replicas": 3
-    }
-  ],
-  "do something weird": [],
-  "deploy nginx with 2 replicas then scale it to 4": [
-    {
-      "action": "deploy",
-      "name": "nginx",
-      "image": "nginx:latest",
-      "replicas": 2
-    },
-    {
-      "action": "scale",
-      "name": "nginx",
-      "replicas": 4
+      "name": "*"
     }
   ]
 }

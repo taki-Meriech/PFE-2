@@ -9,6 +9,7 @@ from k8s_module import (
     list_deployments,
     list_services,
     is_cluster_available,
+    get_deployment_status,
     deployment_exists
 )
 import re 
@@ -30,7 +31,22 @@ def save_cache(cache):
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(cache, f, indent=2, ensure_ascii=False)
 
+def save_history(command, plan):
+    try:
+        with open("history.json", "r", encoding="utf-8") as f:
+            history = json.load(f)
+    except FileNotFoundError:
+        history = []
+    except json.JSONDecodeError:
+        history = []
 
+    history.append({
+        "command": command,
+        "plan": plan
+    })
+
+    with open("history.json", "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
 
 PROMPT_TEMPLATE = """
 You are a Kubernetes planner AI.
@@ -52,6 +68,7 @@ Allowed actions:
 - list_pods
 - list_deployments
 - list_services
+- status
 
 Each object MUST contain an "action" field.
 
@@ -99,6 +116,13 @@ Formats:
   }
 ]
 
+[
+  {
+    "action": "status",
+    "name": "..."
+  }
+]
+
 Rules:
 - If multiple steps, return multiple objects in a list
 - If only one step, still return a list with one object
@@ -106,11 +130,14 @@ Rules:
 - For deploy, if name is missing, use image as name
 - For scale, action must always be "scale"
 - For delete, include the deployment name
+- If the user asks for the status of a deployment, use "status".
 - If the user asks to show pods, use "list_pods"
 - If the user asks to show deployments, use "list_deployments"
 - If the user asks to show services, use "list_services"
 - If the user asks to change load, workload, charge, number of instances, or replicas, use "scale".
 - If unclear, return []
+- Never use "..." as a name. If the deployment name is missing or unclear, return [].
+- If the user says delete all, delete everything, or delete *, return [].
 
 Command: "{TEXT}"
 
@@ -120,6 +147,32 @@ JSON:
 
 def build_prompt(text):
     return PROMPT_TEMPLATE.replace("{TEXT}", text)
+
+
+def normalize_plan(plan):
+    if not isinstance(plan, list):
+        return plan
+
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+
+        action = step.get("action")
+
+        if action == "deploy":
+            if "replicas" not in step:
+                step["replicas"] = 1
+
+            if "name" not in step and "image" in step:
+                step["name"] = step["image"]
+
+        elif action == "delete":
+            name = step.get("name")
+
+            if name in ["", None]:
+                step["name"] = "all"
+
+    return plan
 
 
 def extract_json_array(raw_text):
@@ -231,8 +284,15 @@ def validate_plan(plan):
             if "name" not in step:
                 return False, f"L'étape {i} delete n'a pas de 'name'."
 
+            if str(step["name"]).lower() in ["", "none", "...", "all", "*", "everything"]:
+                return False, "Commande delete dangereuse ou invalide."
+
         elif action in ["list_pods", "list_deployments", "list_services"]:
             pass
+
+        elif action == "status":
+            if "name" not in step:
+                return False, f"L'étape {i} status n'a pas de 'name'."
 
         else:
             return False, f"L'étape {i} a une action inconnue : {action}"
@@ -314,7 +374,7 @@ def validate_business_rules(plan):
     """
     Vérifie des règles métier simples avant exécution.
     """
-    forbidden_names = {"", None}
+    forbidden_names = {"", None, "...", "all", "*", "everything"}
     forbidden_image_tokens = {
         "your", "image", "name", "here", "placeholder", "example", "demo"
     }
@@ -353,8 +413,15 @@ def validate_business_rules(plan):
                 return False, f"L'étape {i} scale a un nom invalide."
 
         elif action == "delete":
+            if str(name).lower() in ["", "none", "...", "all", "*", "everything"]:
+                return False, "Suppression globale ou nom invalide interdits pour des raisons de sécurité."
+
+            if str(name).lower() in ["all", "*", "everything"]:
+                return False, "Suppression globale interdite pour des raisons de sécurité."
+
+        elif action == "status":
             if name in forbidden_names:
-                return False, f"L'étape {i} delete a un nom invalide."
+                return False, f"L'étape {i} status a un nom invalide."
 
     return True, "Règles métier validées."
 
@@ -443,6 +510,9 @@ def execute_plan(plan):
 
                 elif action == "list_services":
                     list_services()
+                
+                elif action == "status":
+                    get_deployment_status(step["name"])
 
                 else:
                     print(f"Action inconnue ignorée : {action}")
@@ -547,8 +617,17 @@ def process_command(user_command):
     if not business_ok:
         return
 
+    if "dry run" in user_command.lower() or "simulate" in user_command.lower():
+        print("Mode simulation activé")
+        print("\nMode dry-run activé : le plan est validé mais pas exécuté.")
+        print(parsed)
+        return
+
     load_k8s_config()
     execute_plan(parsed)
+    save_history(user_command, parsed)
+
+
 
 def main():
     print("Agent IA Kubernetes démarré.")

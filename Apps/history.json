@@ -1,0 +1,121 @@
+[
+  {
+    "command": "show deployments",
+    "plan": [
+      {
+        "action": "list_deployments"
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "status nginx",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "change load of nginx to 3",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "nginx",
+        "replicas": 3
+      }
+    ]
+  },
+  {
+    "command": "status nginx",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "scale nginx to 3",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "nginx",
+        "replicas": 3
+      }
+    ]
+  },
+  {
+    "command": "status fakeapp",
+    "plan": [
+      {
+        "action": "status",
+        "name": "fakeapp"
+      }
+    ]
+  },
+  {
+    "command": "scale fakeapp to 2",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "fakeapp",
+        "replicas": 2
+      }
+    ]
+  },
+  {
+    "command": "show deployemnts",
+    "plan": [
+      {
+        "action": "list_deployments"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "show deployements",
+    "plan": [
+      {
+        "action": "list_deployments"
+      }
+    ]
+  },
+  {
+    "command": "delete all",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "..."
+      }
+    ]
+  },
+  {
+    "command": "delete all",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "..."
+      }
+    ]
+  }
+]

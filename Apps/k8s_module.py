@@ -81,6 +81,30 @@ def list_services():
         print(f"- {namespace} / {name} : type = {svc_type}, clusterIP = {cluster_ip}")
 
 
+def get_deployment_status(name, namespace="default"):
+    apps_v1 = client.AppsV1Api()
+
+    try:
+        dep = apps_v1.read_namespaced_deployment(
+            name=name,
+            namespace=namespace
+        )
+
+        desired = dep.spec.replicas or 0
+        available = dep.status.available_replicas or 0
+        ready = dep.status.ready_replicas or 0
+
+        print(f"Status du deployment '{name}' :")
+        print(f"- replicas demandés : {desired}")
+        print(f"- replicas disponibles : {available}")
+        print(f"- replicas prêts : {ready}")
+
+    except ApiException as e:
+        if e.status == 404:
+            print(f"Le deployment '{name}' n'existe pas.")
+        else:
+            raise
+
 def create_deployment(name="nginx-test", image="nginx", replicas=1, namespace="default"):
     """
     Crée un deployment Kubernetes.
