@@ -13,6 +13,25 @@ from k8s_module import (
 )
 import re 
 
+CACHE_FILE = "prompt_cache.json"
+
+
+def load_cache():
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def save_cache(cache):
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2, ensure_ascii=False)
+
+
+
 PROMPT_TEMPLATE = """
 You are a Kubernetes planner AI.
 
@@ -90,6 +109,7 @@ Rules:
 - If the user asks to show pods, use "list_pods"
 - If the user asks to show deployments, use "list_deployments"
 - If the user asks to show services, use "list_services"
+- If the user asks to change load, workload, charge, number of instances, or replicas, use "scale".
 - If unclear, return []
 
 Command: "{TEXT}"
@@ -303,6 +323,17 @@ def validate_business_rules(plan):
         action = step.get("action")
         name = step.get("name")
         image = step.get("image")
+        replicas = step.get("replicas")
+
+        if action in ["deploy", "scale"]:
+            if not isinstance(replicas, int):
+                return False, f"L'étape {i} a un nombre de replicas invalide."
+
+            if replicas < 0:
+                return False, f"L'étape {i} a un nombre de replicas négatif."
+
+            if replicas > 20:
+                return False, f"L'étape {i} demande trop de replicas pour un test local."
 
         if action == "deploy":
             if name in forbidden_names:
@@ -327,67 +358,103 @@ def validate_business_rules(plan):
 
     return True, "Règles métier validées."
 
-def execute_plan(plan):
-    if not is_cluster_available():
-        print("Cluster Kubernetes indisponible. Vérifie Docker et Minikube.")
-        return
 
-    for i, step in enumerate(plan, start=1):
-        action = step["action"]
-        print(f"\n--- Exécution étape {i}: {action} ---")
+def explain_error(error):
+    """
+    Explique les erreurs d'une manière compréhensible pour l'utilisateur.
+    """
+    from kubernetes.client.exceptions import ApiException
 
-        if action == "deploy":
-            name = step["name"]
-
-            if deployment_exists(name):
-                print(f"Le deployment '{name}' existe déjà. Deploy ignoré.")
-                continue
-
-            created = create_deployment(
-                name=step["name"],
-                image=step["image"],
-                replicas=step["replicas"]
-            )
-
-            if created:
-                print(f"Deploy exécuté pour {step['name']}")
-            else:
-                print(f"Deploy ignoré pour {step['name']}")
-
-        elif action == "scale":
-            name = step["name"]
-
-            if not deployment_exists(name):
-                print(f"Impossible de scaler : le deployment '{name}' n'existe pas.")
-                continue
-
-            scale_deployment(
-                name=step["name"],
-                replicas=step["replicas"]
-            )
-            print(f"Scale exécuté pour {step['name']} -> {step['replicas']} replicas")
-
-        elif action == "delete":
-            name = step["name"]
-
-            if not deployment_exists(name):
-                print(f"Impossible de supprimer : le deployment '{name}' n'existe pas.")
-                continue
-
-            delete_deployment(name=name)
-            print(f"Delete exécuté pour {name}")
-
-        elif action == "list_pods":
-            list_pods()
-
-        elif action == "list_deployments":
-            list_deployments()
-
-        elif action == "list_services":
-            list_services()
-
+    if isinstance(error, ApiException):
+        if error.status == 404:
+            return "Erreur 404 : la ressource Kubernetes demandée n'existe pas."
+        elif error.status == 409:
+            return "Erreur 409 : conflit, la ressource existe déjà."
+        elif error.status == 403:
+            return "Erreur 403 : accès refusé. Vérifie les permissions Kubernetes."
+        elif error.status == 401:
+            return "Erreur 401 : authentification Kubernetes invalide."
+        elif error.status == 500:
+            return "Erreur 500 : problème interne du serveur Kubernetes."
         else:
-            print(f"Action inconnue ignorée : {action}")
+            return f"Erreur Kubernetes {error.status} : {error.reason}"
+
+    return f"Erreur inattendue : {str(error)}"
+
+
+def execute_plan(plan):
+    try:
+        if not is_cluster_available():
+            print("Cluster Kubernetes indisponible. Vérifie Docker et Minikube.")
+            return
+
+        for i, step in enumerate(plan, start=1):
+            action = step["action"]
+            print(f"\n--- Exécution étape {i}: {action} ---")
+
+            try:
+                if action == "deploy":
+                    name = step["name"]
+
+                    if deployment_exists(name):
+                        print(f"Le deployment '{name}' existe déjà. Deploy ignoré.")
+                        continue
+
+                    created = create_deployment(
+                        name=step["name"],
+                        image=step["image"],
+                        replicas=step["replicas"]
+                    )
+
+                    if created:
+                        print(f"Deploy exécuté pour {step['name']}")
+                    else:
+                        print(f"Deploy ignoré pour {step['name']}")
+
+                elif action == "scale":
+                    name = step["name"]
+
+                    if not deployment_exists(name):
+                        print(f"Impossible de scaler : le deployment '{name}' n'existe pas.")
+                        continue
+
+                    scale_deployment(
+                        name=step["name"],
+                        replicas=step["replicas"]
+                    )
+
+                    print(f"Scale exécuté pour {step['name']} -> {step['replicas']} replicas")
+
+                elif action == "delete":
+                    name = step["name"]
+
+                    if not deployment_exists(name):
+                        print(f"Impossible de supprimer : le deployment '{name}' n'existe pas.")
+                        continue
+
+                    delete_deployment(name=name)
+                    print(f"Delete exécuté pour {name}")
+
+                elif action == "list_pods":
+                    list_pods()
+
+                elif action == "list_deployments":
+                    list_deployments()
+
+                elif action == "list_services":
+                    list_services()
+
+                else:
+                    print(f"Action inconnue ignorée : {action}")
+
+            except Exception as e:
+                print("Erreur pendant l'exécution de cette étape :")
+                print(explain_error(e))
+
+    except Exception as e:
+        print("Erreur générale :")
+        print(explain_error(e))
+
 
 def auto_fix_plan(plan):
     """
@@ -420,27 +487,34 @@ def auto_fix_plan(plan):
 
     return plan
 
-def main():
-    user_command = input("Entre une commande complexe Kubernetes : ")
+def process_command(user_command):
+    cache = load_cache()
 
-    response = ollama.chat(
-        model="gemma2:2b",
-        messages=[{"role": "user", "content": build_prompt(user_command)}]
-    )
+    if user_command in cache:
+        print("\nPlan récupéré depuis le cache.")
+        parsed = cache[user_command]
+    else:
+        response = ollama.chat(
+            model="gemma2:2b",
+            messages=[{"role": "user", "content": build_prompt(user_command)}]
+        )
 
-    raw = response["message"]["content"]
+        raw = response["message"]["content"]
 
-    print("\nRéponse brute :")
-    print(raw)
+        print("\nRéponse brute :")
+        print(raw)
 
-    parsed = extract_json_array(raw)
+        parsed = extract_json_array(raw)
+
+        if parsed is None:
+            print("\nErreur : impossible d'extraire un tableau JSON.")
+            return
+
+        cache[user_command] = parsed
+        save_cache(cache)
 
     print("\nParsed :")
     print(parsed)
-
-    if parsed is None:
-        print("\nErreur : impossible d'extraire un tableau JSON.")
-        return
 
     parsed = normalize_plan(parsed)
 
@@ -475,6 +549,22 @@ def main():
 
     load_k8s_config()
     execute_plan(parsed)
+
+def main():
+    print("Agent IA Kubernetes démarré.")
+    print("Tape 'exit', 'quit' ou 'q' pour arrêter.\n")
+
+    while True:
+        user_command = input("Commande Kubernetes > ").strip()
+
+        if user_command.lower() in ["exit", "quit", "q"]:
+            print("Arrêt de l'agent IA Kubernetes.")
+            break
+
+        if not user_command:
+            continue
+
+        process_command(user_command)
 
 if __name__ == "__main__":
     main()

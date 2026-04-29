@@ -1,6 +1,5 @@
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
-from kubernetes.client.exceptions import ApiException
 
 
 def load_k8s_config():
